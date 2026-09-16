@@ -1,3 +1,20 @@
+Student: David Carrilho - 20231693
+
+# Results
+
+Week 2
+- Logistic Regression: 67.9% training accuracy, 67.7% test accuracy.
+- Decision Tree: 82.9% training accuracy, 63.1% test accuracy.
+
+Logistic Regression performed better on the test data. The Decision Tree had a much larger gap between training and test scores due to overfit.
+
+
+
+
+
+
+
+
 # Baseline Predictive Pipeline -- ETAI
 
 This is the **starting point** for your semester project: a small but *complete* predictive pipeline -- every piece a real project needs (entry point, config, data loading, preprocessing, model, evaluation), just kept as simple as possible for now.
