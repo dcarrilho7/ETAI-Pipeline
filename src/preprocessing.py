@@ -30,7 +30,7 @@ def _canonicalize_categories(
         if col not in out.columns:
             continue
 
-        cleaned = out[col].astype(str).str.strip()
+        cleaned = out[col].astype("string").str.strip()
         lowered = cleaned.str.lower()
 
         out[col] = lowered.map(mapping).fillna(cleaned)
