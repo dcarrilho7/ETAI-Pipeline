@@ -11,7 +11,7 @@ This orchestrates the full (deliberately simple) pipeline:
 import yaml
 
 from src.data import load_data
-from src.preprocessing import preprocess
+from src.preprocessing import preprocess, clean_dataset
 from src.model import build_model
 from src.evaluate import evaluate, fairness_report
 from src.results import save_run
@@ -26,6 +26,9 @@ def main():
     config = load_config()
 
     df = load_data(config["data"]["path"])
+
+    df = clean_dataset(df,config["diagnostics"])
+    
 
     X_train, X_test, y_train, y_test, extras_test = preprocess(
         df,

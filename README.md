@@ -8,6 +8,9 @@ Week 2
 
 Logistic Regression performed better on the test data. The Decision Tree had a much larger gap between training and test scores due to overfit.
 
+Week 3 
+
+ After applying the EDA-based data cleaning, Logistic Regression achieved 67.8% training accuracy and 65.5% test accuracy, while the Decision Tree achieved 79.9% training accuracy and 60.9% test accuracy. Both models had lower test accuracy than in Week 2. Logistic Regression still generalised better, while the Decision Tree continued to show considerable overfitting.
 
 
 
@@ -36,6 +39,7 @@ go on.
 ├── requirements.txt
 ├── src/
 │   ├── data.py             # loading
+    ├── data_diagnostics.py    # EDA checks: missingness, invalid values, duplicates
 │   ├── preprocessing.py    # cleaning + train/test split
 │   ├── model.py             # model construction
 │   ├── evaluate.py         # accuracy metrics + fairness check
