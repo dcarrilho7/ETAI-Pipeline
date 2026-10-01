@@ -12,6 +12,21 @@ Week 3
 
  After applying the EDA-based data cleaning, Logistic Regression achieved 67.8% training accuracy and 65.5% test accuracy, while the Decision Tree achieved 79.9% training accuracy and 60.9% test accuracy. Both models had lower test accuracy than in Week 2. Logistic Regression still generalised better, while the Decision Tree continued to show considerable overfitting.
 
+Week 4
+
+I moved the preprocessing and model into the same scikit-learn pipeline. The data is now split into a development set and a locked test set. I use stratified 5-fold cross-validation on the development set, and the imputer, encoder, and scaler are fitted inside each fold.
+
+I also made the preprocessing choices configurable in `config.yaml`, added a Dummy Classifier and Random Forest, and tested target encoding, KNN imputation, and a depth-limited Decision Tree.
+
+| Model / setup | CV accuracy | Locked test accuracy | Mean train-validation gap |
+|---|---:|---:|---:|
+| Dummy baseline | 54.9% | 55.0% | 0.0 percentage points |
+| Random Forest | 64.6% | 64.7% | 9.0 percentage points |
+| Decision Tree (`max_depth=5`) | 66.4% | 66.0% | 1.9 percentage points |
+| Logistic Regression (target encoding, median imputation, robust scaling) | 67.2% | 65.8% | 0.3 percentage points |
+
+The depth-limited Decision Tree overfit less than the unrestricted tree. Logistic Regression had the best cross-validation accuracy and the smallest train-validation gap, so it is currently the best model in this experiment. The KNN imputer and target encoder were tested as alternatives, but neither produced a clear improvement over the current setup.
+
 
 
 
@@ -39,7 +54,6 @@ go on.
 ├── requirements.txt
 ├── src/
 │   ├── data.py             # loading
-    ├── data_diagnostics.py    # EDA checks: missingness, invalid values, duplicates
 │   ├── preprocessing.py    # cleaning + train/test split
 │   ├── model.py             # model construction
 │   ├── evaluate.py         # accuracy metrics + fairness check

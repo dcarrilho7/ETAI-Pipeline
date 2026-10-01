@@ -1,6 +1,43 @@
-"""Evaluation -- single train/test split, no cross-validation (yet)."""
+"""Evaluation helpers for holdout and cross-validation experiments."""
 import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import cross_validate
+
+
+def cross_validate_pipeline(pipeline, X, y, cv, scoring="accuracy", n_jobs=1):
+    """Evaluate a complete preprocessing-plus-model pipeline on each CV fold."""
+    scores = cross_validate(
+        pipeline,
+        X,
+        y,
+        cv=cv,
+        scoring=scoring,
+        return_train_score=True,
+        n_jobs=n_jobs,
+    )
+    fold_scores = pd.DataFrame({
+        "fold": range(1, len(scores["test_score"]) + 1),
+        "train": scores["train_score"],
+        "validation": scores["test_score"],
+    })
+    fold_scores["gap"] = fold_scores["train"] - fold_scores["validation"]
+    return fold_scores
+
+
+def cv_report(fold_scores: pd.DataFrame, scoring="accuracy") -> str:
+    mean_validation = fold_scores["validation"].mean()
+    std_validation = fold_scores["validation"].std(ddof=1)
+    mean_gap = fold_scores["gap"].mean()
+    lines = [
+        f"Cross-validation ({scoring}):",
+        fold_scores.to_string(index=False, float_format=lambda x: f"{x:.3f}"),
+        "",
+        f"Validation mean: {mean_validation:.3f} +/- {std_validation:.3f}",
+        f"Mean train-validation gap: {mean_gap:+.3f}",
+    ]
+    text = "\n".join(lines)
+    print(text)
+    return text
 
 
 def evaluate(y_train, y_train_pred, y_test, y_pred) -> str:
