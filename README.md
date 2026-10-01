@@ -14,9 +14,9 @@ Week 3
 
 Week 4
 
-I moved the preprocessing and model into the same scikit-learn pipeline. I used stratified 5-fold cross-validation on the development set, and the imputer, encoder, and scaler are fitted inside each fold.
+I moved the preprocessing and model into the same scikit-learn pipeline. The data is now split into a development set and a locked test set. I use stratified 5-fold cross-validation on the development set, and the imputer, encoder, and scaler are fitted inside each fold.
 
-I also made the preprocessing choices configurable in `config.yaml`, added a Dummy Classifier and Random Forest, and tested target encoding, KNN imputation, and a depth-limited Decision Tree.
+Added a Dummy Classifier and Random Forest, and tested target encoding, KNN imputation, and a depth-limited Decision Tree.
 
 | Model / setup | CV accuracy | Locked test accuracy | Mean train-validation gap |
 |---|---:|---:|---:|
