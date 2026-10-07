@@ -27,6 +27,7 @@ def save_run(results_dir: str, config: dict, report_text: str) -> str:
         f"random_state: {test_config.get('random_state')}\n"
         f"CV: {config.get('cv', {})}\n"
         f"Preprocessing: {config.get('preprocessing', {}).get('imputation', {})}\n"
+        f"Tuning: {config.get('tuning', {})}\n"
         + "=" * 60 + "\n\n"
     )
 

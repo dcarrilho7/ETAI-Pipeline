@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import KNNImputer, SimpleImputer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
     OneHotEncoder,
@@ -74,9 +74,12 @@ def clean_dataset(df: pd.DataFrame, diagnostics_config: dict) -> pd.DataFrame:
         placeholder_tokens,
     )
 
-    # Duplicate rows are removed from this labelled training dataset before splitting.
-    out = out.drop_duplicates()
-    id_column = diagnostics_config.get("id_column")
+    return out
+
+
+def drop_duplicate_rows(df: pd.DataFrame, id_column: str = None) -> pd.DataFrame:
+    """Remove duplicate training rows before the development/test split."""
+    out = df.drop_duplicates()
     if id_column and id_column in out.columns:
         out = out.drop_duplicates(subset=id_column, keep="first")
     return out
@@ -165,8 +168,6 @@ def _build_encoder(name: str, random_state: int):
     if name == "target":
         return TargetEncoder(
             target_type="binary",
-            cv=5,
-            shuffle=True,
-            random_state=random_state,
+            cv=StratifiedKFold(5, shuffle=True, random_state=random_state),
         )
     raise ValueError("Unknown encoder: {}. Choose 'onehot' or 'target'.".format(name))

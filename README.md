@@ -27,6 +27,18 @@ Added a Dummy Classifier and Random Forest, and tested target encoding, KNN impu
 
 The depth-limited Decision Tree overfit less than the unrestricted tree. Logistic Regression had the best cross-validation accuracy and the smallest train-validation gap, so it is currently the best model in this experiment. The KNN imputer and target encoder were tested as alternatives, but neither produced a clear improvement over the current setup.
 
+Week 5
+
+This week I added Optuna to tune the models. I tested `max_depth`, `min_samples_leaf`, and `criterion` for the Decision Tree, `C` for Logistic Regression, and several parameters for Random Forest. I used nested cross-validation so the models were evaluated on folds that were not used during tuning.
+
+| Model | Default CV mean ± std | Tuned nested CV mean ± std | Best trial | Optimism | Chosen hyperparameters |
+|---|---:|---:|---:|---:|---|
+| Decision Tree | 61.1% ± 1.5% | 67.5% ± 2.0% | 68.0% | 0.0 pp | `max_depth=9`, `min_samples_leaf=101`, `criterion=gini` |
+| Logistic Regression | 67.2% ± 1.3% | 67.3% ± 1.6% | 67.8% | +0.2 pp | `C=0.072` |
+| Random Forest | 64.6% ± 1.6% | 68.2% ± 1.5% | 68.3% | -0.1 pp | `n_estimators=137`, `max_depth=None`, `min_samples_leaf=33`, `max_features=log2` |
+
+Random Forest performed best after tuning, while Logistic Regression changed very little. The Decision Tree also improved compared with its default settings. The test set was kept separate from the tuning process. Random Forest used 15 trials; the other two models used 30.
+
 
 
 
@@ -55,8 +67,9 @@ go on.
 ├── src/
 │   ├── data.py             # loading
 │   ├── preprocessing.py    # cleaning + train/test split
-│   ├── model.py             # model construction
-│   ├── evaluate.py         # accuracy metrics + fairness check
+│   ├── model.py             # model and pipeline construction
+│   ├── evaluate.py         # cross-validation, metrics + fairness check
+│   ├── tuning.py           # Optuna tuning + nested cross-validation
 │   └── results.py          # saves each run's report to disk
 ├── results/                # created automatically -- one file per run (not tracked in git)
 └── data/
@@ -71,6 +84,7 @@ This table is updated after each practical class, so you can always see what cha
 | Week | Practical class focus | Added to the pipeline |
 |------|------------------------|------------------------|
 | 2 | Introduction & baseline pipeline | Initial version: project structure, a single naive train/test split (no cross-validation), minimal preprocessing (drop rows with missing values, one-hot encode categoricals), logistic regression baseline, a first (deliberately simple) fairness check comparing our model's and COMPAS's own false-positive rate by race, train-vs-test accuracy reporting (to start spotting overfitting), and each run's full report saved automatically to `results/` |
+| 5 | Hyperparameter tuning | Added a single `build_pipeline()` function, Optuna tuning for a decision tree, and nested cross-validation so the tuning score is estimated on folds that were not used to choose the parameters. |
 
 ## Environment setup
 
@@ -131,10 +145,11 @@ python main.py
 ```
 
 This loads `config.yaml`, loads and preprocesses the data, trains the model, and prints:
-- **train accuracy and test accuracy, side by side.** Comparing the two is how you catch overfitting: if the model looks much better on the data it was trained on than on data it's never seen, it has memorised rather than learned something that generalises. 
-- a classification report on the test set
+- default and nested cross-validation results
+- a classification report from out-of-fold development-set predictions
 - a false-positive-rate-by-race comparison between our model and
   COMPAS's own score
+- the selected hyperparameters and the locked test-set status
 
 All of this is also saved to a timestamped file in `results/` (e.g.`results/run_20260916_143012.txt`), so it doesn't just scroll past in your terminal -- open it later, or change something in `config.yaml` (like the model type) and compare the new file to the last one.
 `results/` is created automatically the first time you run the

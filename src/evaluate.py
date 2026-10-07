@@ -5,7 +5,7 @@ from sklearn.model_selection import cross_validate
 
 
 def cross_validate_pipeline(pipeline, X, y, cv, scoring="accuracy", n_jobs=1):
-    """Evaluate a complete preprocessing-plus-model pipeline on each CV fold."""
+    """Evaluate the complete pipeline and return fold scores plus OOF predictions."""
     scores = cross_validate(
         pipeline,
         X,
@@ -13,6 +13,8 @@ def cross_validate_pipeline(pipeline, X, y, cv, scoring="accuracy", n_jobs=1):
         cv=cv,
         scoring=scoring,
         return_train_score=True,
+        return_estimator=True,
+        return_indices=True,
         n_jobs=n_jobs,
     )
     fold_scores = pd.DataFrame({
@@ -21,7 +23,19 @@ def cross_validate_pipeline(pipeline, X, y, cv, scoring="accuracy", n_jobs=1):
         "validation": scores["test_score"],
     })
     fold_scores["gap"] = fold_scores["train"] - fold_scores["validation"]
-    return fold_scores
+
+    y_oof = pd.Series(index=y.index, dtype=y.dtype)
+    for estimator, val_idx in zip(scores["estimator"], scores["indices"]["test"]):
+        y_oof.iloc[val_idx] = estimator.predict(X.iloc[val_idx])
+    return fold_scores, y_oof.to_numpy()
+
+
+def oof_classification_report(y_true, y_pred) -> str:
+    """Create a classification report from out-of-fold predictions."""
+    text = "Classification report (out-of-fold predictions, development set):\n"
+    text += classification_report(y_true, y_pred, zero_division=0)
+    print(text)
+    return text
 
 
 def cv_report(fold_scores: pd.DataFrame, scoring="accuracy") -> str:
