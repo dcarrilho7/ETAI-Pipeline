@@ -39,6 +39,22 @@ This week I added Optuna to tune the models. I tested `max_depth`, `min_samples_
 
 Random Forest performed best after tuning, while Logistic Regression changed very little. The Decision Tree also improved compared with its default settings. The test set was kept separate from the tuning process. Random Forest used 15 trials; the other two models used 30.
 
+Week 6
+
+This week I added Random Forest, Oblique Random Forest, and AdaBoost to the model registry. They use the same pipeline and nested-CV tuning process as the earlier models. Random Forest and Oblique Random Forest use many trees, while AdaBoost builds shallow trees one after another.
+
+| Model | Default CV mean ± std (gap) | Tuned nested CV mean ± std (gap) | Best trial | Chosen hyperparameters |
+|---|---:|---:|---:|---|
+| Logistic Regression | 67.4% ± 1.1% (+0.001) | 67.5% ± 1.1% (+0.002) | 67.6% | `C=0.023` |
+| Decision Tree | 59.1% ± 0.8% (+0.116) | 66.8% ± 1.3% (+0.014) | 67.3% | `max_depth=5`, `min_samples_leaf=2`, `criterion=entropy` |
+| Random Forest | 64.1% ± 1.6% (+0.112) | 67.2% ± 0.8% (+0.018) | 67.8% | `max_depth=24`, `min_samples_leaf=16`, `max_features=sqrt` |
+| Oblique Random Forest | 64.2% ± 1.4% (+0.137) | 67.5% ± 1.2% (+0.011) | 68.0% | tree `max_depth=3`, tree `min_samples_leaf=88`, `n_components=8` |
+| AdaBoost | 67.4% ± 0.7% (+0.005) | 67.6% ± 0.9% (+0.007) | 67.9% | base depth `4`, `n_estimators=362`, `learning_rate=0.304` |
+
+AdaBoost had the highest nested-CV mean, but its lead over Oblique Random Forest and Logistic Regression is smaller than the fold-to-fold variation. The tuned forests reduced the overfitting gap compared with their default settings. I would report AdaBoost's 67.6% nested-CV score, while treating the three best ensembles as very close.
+
+I also added three fixed engineered features: priors per adult year, an age-priors interaction, and total juvenile offenses. In a small five-trial nested-CV comparison, Logistic Regression improved from 67.3% to 67.5%, while Random Forest changed from 67.9% to 67.6% and AdaBoost from 68.0% to 67.9%. The Logistic Regression gain was smaller than the fold-to-fold standard deviation, so the features did not give a clear improvement.
+
 
 
 
@@ -85,6 +101,7 @@ This table is updated after each practical class, so you can always see what cha
 |------|------------------------|------------------------|
 | 2 | Introduction & baseline pipeline | Initial version: project structure, a single naive train/test split (no cross-validation), minimal preprocessing (drop rows with missing values, one-hot encode categoricals), logistic regression baseline, a first (deliberately simple) fairness check comparing our model's and COMPAS's own false-positive rate by race, train-vs-test accuracy reporting (to start spotting overfitting), and each run's full report saved automatically to `results/` |
 | 5 | Hyperparameter tuning | Added a single `build_pipeline()` function, Optuna tuning for a decision tree, and nested cross-validation so the tuning score is estimated on folds that were not used to choose the parameters. |
+| 6 | Ensembles and feature engineering | Added Random Forest, Oblique Random Forest, AdaBoost, and three fixed engineered features. All models use the same config-driven pipeline and nested-CV tuning. |
 
 ## Environment setup
 

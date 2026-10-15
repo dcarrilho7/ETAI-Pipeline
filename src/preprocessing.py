@@ -77,6 +77,26 @@ def clean_dataset(df: pd.DataFrame, diagnostics_config: dict) -> pd.DataFrame:
     return out
 
 
+def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add fixed, row-wise features that do not learn anything from the dataset."""
+    out = df.copy()
+
+    if {"priors_count", "age"}.issubset(out.columns):
+        age = pd.to_numeric(out["age"], errors="coerce")
+        priors = pd.to_numeric(out["priors_count"], errors="coerce")
+        out["priors_per_adult_year"] = priors / (age - 17).clip(lower=1)
+        out["age_priors_interaction"] = age * priors
+
+    juvenile_columns = [
+        column for column in ["juv_fel_count", "juv_misd_count", "juv_other_count"]
+        if column in out.columns
+    ]
+    if juvenile_columns:
+        out["juvenile_offense_total"] = out[juvenile_columns].sum(axis=1, min_count=1)
+
+    return out
+
+
 def drop_duplicate_rows(df: pd.DataFrame, id_column: str = None) -> pd.DataFrame:
     """Remove duplicate training rows before the development/test split."""
     out = df.drop_duplicates()

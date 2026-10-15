@@ -13,6 +13,7 @@ from src.evaluate import (
 )
 from src.model import build_pipeline
 from src.preprocessing import (
+    add_engineered_features,
     clean_dataset,
     drop_duplicate_rows,
     split_dev_test,
@@ -30,6 +31,7 @@ def load_config(path: str = "config.yaml") -> dict:
 def main():
     config = load_config()
     df = clean_dataset(load_data(config["data"]["path"]), config["diagnostics"])
+    df = add_engineered_features(df)
     df = drop_duplicate_rows(df, config["diagnostics"].get("id_column"))
 
     X, y, extras = split_features_target(
