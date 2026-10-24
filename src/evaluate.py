@@ -1,94 +1,107 @@
-"""Evaluation helpers for holdout and cross-validation experiments."""
+"""Evaluation helpers used by the cross-validation part of the pipeline."""
+
+import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, classification_report
+from scipy import stats
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    fbeta_score,
+    get_scorer,
+    make_scorer,
+)
 from sklearn.model_selection import cross_validate
 
 
-def cross_validate_pipeline(pipeline, X, y, cv, scoring="accuracy", n_jobs=1):
-    """Evaluate the complete pipeline and return fold scores plus OOF predictions."""
+def build_scorers(metrics):
+    """Build sklearn scorers from the names in config.yaml."""
+    scorers = {}
+    for metric in metrics:
+        if metric == "fbeta_2":
+            scorers[metric] = make_scorer(fbeta_score, beta=2, zero_division=0)
+        else:
+            scorers[metric] = get_scorer(metric)
+    return scorers
+
+
+def cross_validate_pipeline(
+    pipeline, X, y, cv, scorers, selection_metric="accuracy", n_jobs=1
+):
+    """Run CV for all configured metrics and return out-of-fold probabilities."""
     scores = cross_validate(
         pipeline,
         X,
         y,
         cv=cv,
-        scoring=scoring,
+        scoring=scorers,
         return_train_score=True,
         return_estimator=True,
         return_indices=True,
         n_jobs=n_jobs,
     )
-    fold_scores = pd.DataFrame({
-        "fold": range(1, len(scores["test_score"]) + 1),
-        "train": scores["train_score"],
-        "validation": scores["test_score"],
-    })
-    fold_scores["gap"] = fold_scores["train"] - fold_scores["validation"]
 
-    y_oof = pd.Series(index=y.index, dtype=y.dtype)
+    rows = []
+    oof_proba = np.empty(len(X), dtype=float)
+    for fold in range(len(scores[f"test_{selection_metric}"])):
+        row = {"fold": fold + 1}
+        for metric in scorers:
+            train = scores[f"train_{metric}"][fold]
+            validation = scores[f"test_{metric}"][fold]
+            row[f"train_{metric}"] = train
+            row[f"validation_{metric}"] = validation
+            row[f"gap_{metric}"] = train - validation
+        row["train"] = row[f"train_{selection_metric}"]
+        row["validation"] = row[f"validation_{selection_metric}"]
+        row["gap"] = row[f"gap_{selection_metric}"]
+        rows.append(row)
+
     for estimator, val_idx in zip(scores["estimator"], scores["indices"]["test"]):
-        y_oof.iloc[val_idx] = estimator.predict(X.iloc[val_idx])
-    return fold_scores, y_oof.to_numpy()
+        oof_proba[val_idx] = estimator.predict_proba(X.iloc[val_idx])[:, 1]
+
+    return pd.DataFrame(rows), oof_proba
 
 
-def oof_classification_report(y_true, y_pred) -> str:
-    """Create a classification report from out-of-fold predictions."""
-    text = "Classification report (out-of-fold predictions, development set):\n"
-    text += classification_report(y_true, y_pred, zero_division=0)
-    print(text)
-    return text
-
-
-def cv_report(fold_scores: pd.DataFrame, scoring="accuracy") -> str:
-    mean_validation = fold_scores["validation"].mean()
-    std_validation = fold_scores["validation"].std(ddof=1)
-    mean_gap = fold_scores["gap"].mean()
+def cv_report(fold_scores: pd.DataFrame, metrics, selection_metric="accuracy") -> str:
+    """Format fold-level means and standard deviations for the report."""
     lines = [
-        f"Cross-validation ({scoring}):",
+        f"Cross-validation (selection metric: {selection_metric}):",
         fold_scores.to_string(index=False, float_format=lambda x: f"{x:.3f}"),
         "",
-        f"Validation mean: {mean_validation:.3f} +/- {std_validation:.3f}",
-        f"Mean train-validation gap: {mean_gap:+.3f}",
     ]
+    for metric in metrics:
+        values = fold_scores[f"validation_{metric}"]
+        gaps = fold_scores[f"gap_{metric}"]
+        lines.append(
+            f"{metric}: {values.mean():.3f} +/- {values.std(ddof=1):.3f} "
+            f"(mean gap {gaps.mean():+.3f})"
+        )
     text = "\n".join(lines)
     print(text)
     return text
 
 
-def evaluate(y_train, y_train_pred, y_test, y_pred) -> str:
-    """
-    Prints -- and returns as text, so it can also be saved to disk -- train accuracy and test accuracy side by side, plus the usual classification report on the test set.
-    """
-    train_accuracy = accuracy_score(y_train, y_train_pred)
-    test_accuracy = accuracy_score(y_test, y_pred)
-    gap = train_accuracy - test_accuracy
-
+def oof_classification_report(y_true, oof_proba, threshold=0.5) -> str:
+    """Create a classification report from out-of-fold probabilities."""
+    y_pred = (np.asarray(oof_proba) >= threshold).astype(int)
     lines = [
-        f"Train accuracy: {train_accuracy:.3f}",
-        f"Test accuracy:  {test_accuracy:.3f}",
-        f"Gap (train - test): {gap:+.3f}",
+        "Classification report (out-of-fold predictions, development set):",
+        f"Confusion matrix (threshold={threshold}):",
+        str(confusion_matrix(y_true, y_pred)),
+        classification_report(y_true, y_pred, zero_division=0),
     ]
-    lines.append("")
-    lines.append("Classification report (test set):")
-    lines.append(classification_report(y_test, y_pred))
-
     text = "\n".join(lines)
     print(text)
     return text
 
 
-def fairness_report(y_test, y_pred, extras_test: pd.DataFrame, sensitive_attr: str = "race") -> str:
-    """
-    Deliberately simple fairness check -- not a substitute for a real audit, just enough to show that "accuracy" and "fair" are not the same thing.
-
-    For each race group, prints (and returns as text) the false
-    positive rate (share of people who did NOT reoffend but were
-    predicted to) for:
-        - our own model
-        - COMPAS's own risk score (score_text != "Low" counts as a "high risk" prediction), for comparison
-    """
-    df = extras_test.copy()
-    df["y_true"] = y_test.values
-    df["y_pred_model"] = y_pred
+def fairness_report(
+    y_true, oof_proba, extras: pd.DataFrame, threshold=0.5, sensitive_attr="race"
+) -> str:
+    """Compare model and COMPAS false-positive rates by race."""
+    df = extras.reset_index(drop=True).copy()
+    df["y_true"] = np.asarray(y_true)
+    df["y_pred_model"] = (np.asarray(oof_proba) >= threshold).astype(int)
     df["y_pred_compas"] = (df["score_text"] != "Low").astype(int)
 
     lines = [
@@ -96,17 +109,44 @@ def fairness_report(y_test, y_pred, extras_test: pd.DataFrame, sensitive_attr: s
         "(share of people who did NOT reoffend, but were predicted to)",
         "",
     ]
-
     for label, col in [("Our model", "y_pred_model"), ("COMPAS's own score", "y_pred_compas")]:
         lines.append(f"  {label}:")
-        for group, g in df.groupby(sensitive_attr):
-            negatives = g[g["y_true"] == 0]
+        for group, group_df in df.groupby(sensitive_attr):
+            negatives = group_df[group_df["y_true"] == 0]
             if len(negatives) == 0:
                 continue
             fpr = (negatives[col] == 1).mean()
-            lines.append(f"    {group:<20s} FPR = {fpr:.2f}  (n={len(negatives)})")
+            lines.append(f"    {str(group):<20s} FPR = {fpr:.2f}  (n={len(negatives)})")
         lines.append("")
 
     text = "\n".join(lines)
+    print(text)
+    return text
+
+
+def corrected_paired_test(scores_a, scores_b, test_train_ratio):
+    """Return the corrected resampled t-test used for two CV score vectors."""
+    scores_a = np.asarray(scores_a, dtype=float)
+    scores_b = np.asarray(scores_b, dtype=float)
+    differences = scores_a - scores_b
+    variance = np.var(differences, ddof=1)
+    correction = (1 / len(differences)) + test_train_ratio
+    t_stat = differences.mean() / np.sqrt(correction * variance)
+    p_value = 2 * stats.t.sf(abs(t_stat), df=len(differences) - 1)
+    return float(t_stat), float(p_value)
+
+
+def evaluate(y_train, y_train_pred, y_test, y_pred) -> str:
+    """Keep the original simple holdout report available for older runs."""
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    test_accuracy = accuracy_score(y_test, y_pred)
+    text = "\n".join([
+        f"Train accuracy: {train_accuracy:.3f}",
+        f"Test accuracy:  {test_accuracy:.3f}",
+        f"Gap (train - test): {train_accuracy - test_accuracy:+.3f}",
+        "",
+        "Classification report (test set):",
+        classification_report(y_test, y_pred, zero_division=0),
+    ])
     print(text)
     return text

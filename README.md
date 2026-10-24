@@ -61,6 +61,27 @@ I also added three fixed engineered features: priors per adult year, an age-prio
 
 
 
+Week 7
+
+This week I added Gradient Boosting, HistGradientBoosting and Naive Bayes to the model list. I also changed the evaluation so that one run records accuracy, balanced accuracy, precision, recall, F1, F2, ROC-AUC and average precision. I used ROC-AUC as the selection metric because it uses the predicted probabilities instead of depending on only the 0.5 cutoff.
+
+The runs below used five Optuna trials so that I could compare the models without making the experiments too long. The test set was still kept locked. The same rows are also saved in `results/runs.csv`.
+
+| Model | Default CV ROC-AUC | Tuned nested CV ROC-AUC |
+|---|---:|---:|
+| adaboost | 72.2% | 72.7% +/- 1.2% |
+| random_forest | 68.1% | 72.6% +/- 1.4% |
+| gradient_boosting | 72.5% | 72.6% +/- 1.2% |
+| oblique_random_forest | 68.0% | 72.5% +/- 1.1% |
+| hist_gradient_boosting | 71.1% | 72.5% +/- 1.2% |
+| logistic_regression | 72.2% | 72.1% +/- 1.2% |
+| decision_tree | 58.4% | 71.6% +/- 1.0% |
+| naive_bayes | 70.0% | 71.0% +/- 1.1% |
+| dummy | 50.0% | 50.0% (no tuning) |
+
+AdaBoost had the highest score in this small comparison. Random Forest and Gradient Boosting were very close. The Dummy Classifier is the floor at 50.0%, so all of the real models were above it. These results are only a first comparison because I used five tuning trials.
+
+
 # Baseline Predictive Pipeline -- ETAI
 
 This is the **starting point** for your semester project: a small but *complete* predictive pipeline -- every piece a real project needs (entry point, config, data loading, preprocessing, model, evaluation), just kept as simple as possible for now.
@@ -102,6 +123,7 @@ This table is updated after each practical class, so you can always see what cha
 | 2 | Introduction & baseline pipeline | Initial version: project structure, a single naive train/test split (no cross-validation), minimal preprocessing (drop rows with missing values, one-hot encode categoricals), logistic regression baseline, a first (deliberately simple) fairness check comparing our model's and COMPAS's own false-positive rate by race, train-vs-test accuracy reporting (to start spotting overfitting), and each run's full report saved automatically to `results/` |
 | 5 | Hyperparameter tuning | Added a single `build_pipeline()` function, Optuna tuning for a decision tree, and nested cross-validation so the tuning score is estimated on folds that were not used to choose the parameters. |
 | 6 | Ensembles and feature engineering | Added Random Forest, Oblique Random Forest, AdaBoost, and three fixed engineered features. All models use the same config-driven pipeline and nested-CV tuning. |
+| 7 | More models and metrics | Added Gradient Boosting, HistGradientBoosting and Naive Bayes, and saved a scoreboard with several CV metrics. |
 
 ## Environment setup
 

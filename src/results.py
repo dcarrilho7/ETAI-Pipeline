@@ -1,37 +1,37 @@
-"""
-Saving each run's results to disk.
+"""Save the text report and the short scoreboard for each run."""
 
-Printing to the terminal is fine while you're watching it happen, but it's gone the moment you scroll past it or close the window. This module writes the full report (accuracy, classification report, fairness table) to a timestamped file in `results/` instead, so youcan open it again later, or compare two runs side by side after changing something in config.yaml.
-"""
 import os
 from datetime import datetime
 
+import pandas as pd
 
-def save_run(results_dir: str, config: dict, report_text: str) -> str:
-    """
-    Writes one run's full report to a timestamped .txt file inside
-    `results_dir` (created automatically if it doesn't exist yet) and
-    returns the path that was written.
-    """
+
+def save_scores(path: str, row: dict) -> str:
+    """Append one run to the CSV scoreboard."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    new_row = pd.DataFrame([row])
+    if os.path.exists(path):
+        old_rows = pd.read_csv(path)
+        new_row = pd.concat([old_rows, new_row], ignore_index=True)
+    new_row.to_csv(path, index=False)
+    return path
+
+
+def save_run(results_dir: str, run: str, config: dict, report_text: str) -> str:
+    """Write the full report for one run to a timestamped text file."""
     os.makedirs(results_dir, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(results_dir, f"run_{timestamp}.txt")
-
-    test_config = config.get("test_set", config.get("split", {}))
-    test_size = test_config.get("size", test_config.get("test_size"))
+    path = os.path.join(results_dir, f"run_{run}.txt")
+    test_config = config.get("test_set", {})
     header = (
-        f"Run: {timestamp}\n"
+        f"Run: {run}\n"
         f"Model: {config['model']['type']}  params={config['model'].get('params', {})}\n"
-        f"Locked test size: {test_size}  "
+        f"Locked test size: {test_config.get('size')}  "
         f"random_state: {test_config.get('random_state')}\n"
         f"CV: {config.get('cv', {})}\n"
         f"Preprocessing: {config.get('preprocessing', {}).get('imputation', {})}\n"
         f"Tuning: {config.get('tuning', {})}\n"
         + "=" * 60 + "\n\n"
     )
-
-    with open(path, "w") as f:
-        f.write(header + report_text)
-
+    with open(path, "w") as file:
+        file.write(header + report_text)
     return path

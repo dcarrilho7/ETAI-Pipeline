@@ -1,4 +1,6 @@
-"""Run cleaning, leak-safe preprocessing, evaluation, and optional tuning."""
+"""Run cleaning, preprocessing, evaluation, and optional tuning."""
+
+from datetime import datetime
 
 import optuna
 import yaml
@@ -6,6 +8,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from src.data import load_data
 from src.evaluate import (
+    build_scorers,
     cross_validate_pipeline,
     cv_report,
     fairness_report,
@@ -19,7 +22,7 @@ from src.preprocessing import (
     split_dev_test,
     split_features_target,
 )
-from src.results import save_run
+from src.results import save_run, save_scores
 from src.tuning import nested_cross_validate, tune_pipeline, tuning_report
 
 
@@ -30,14 +33,14 @@ def load_config(path: str = "config.yaml") -> dict:
 
 def main():
     config = load_config()
+    run = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     df = clean_dataset(load_data(config["data"]["path"]), config["diagnostics"])
-    df = add_engineered_features(df)
     df = drop_duplicate_rows(df, config["diagnostics"].get("id_column"))
+    df = add_engineered_features(df)
 
     X, y, extras = split_features_target(
-        df,
-        config["data"],
-        config["preprocessing"],
+        df, config["data"], config["preprocessing"]
     )
     X_dev, X_test, y_dev, y_test, extras_dev, extras_test = split_dev_test(
         X,
@@ -47,34 +50,45 @@ def main():
         random_state=config["test_set"]["random_state"],
     )
 
-    estimator = build_pipeline(config["preprocessing"], config["model"])
-
     cv_config = config["cv"]
+    metrics = cv_config["metrics"]
+    selection_metric = cv_config["selection_metric"]
+    scorers = build_scorers(metrics)
     cv = StratifiedKFold(
         n_splits=cv_config["n_splits"],
         shuffle=cv_config.get("shuffle", True),
         random_state=cv_config.get("random_state", 42),
     )
-    fold_scores, y_oof = cross_validate_pipeline(
-        estimator,
-        X_dev,
-        y_dev,
-        cv=cv,
-        scoring=cv_config.get("scoring", "accuracy"),
-        n_jobs=cv_config.get("n_jobs", 1),
+
+    # A majority-class dummy gives a simple floor for the other models.
+    dummy_config = {"type": "dummy", "params": {"strategy": "most_frequent"}}
+    dummy = build_pipeline(config["preprocessing"], dummy_config)
+    floor_scores, _ = cross_validate_pipeline(
+        dummy, X_dev, y_dev, cv, {selection_metric: scorers[selection_metric]},
+        selection_metric=selection_metric, n_jobs=cv_config.get("n_jobs", 1),
     )
-    report = cv_report(fold_scores, cv_config.get("scoring", "accuracy"))
+    floor_mean = floor_scores["validation"].mean()
+    print(f"Dummy baseline ({selection_metric}): {floor_mean:.3f}")
+
+    estimator = build_pipeline(config["preprocessing"], config["model"])
+    fold_scores, oof_proba = cross_validate_pipeline(
+        estimator, X_dev, y_dev, cv, scorers,
+        selection_metric=selection_metric, n_jobs=cv_config.get("n_jobs", 1),
+    )
+    report = cv_report(fold_scores, metrics, selection_metric)
 
     tuning_config = config.get("tuning", {})
+    tuned_mean = None
+    tuned_std = None
+    study = None
     if tuning_config.get("enabled", False):
         model_type = config["model"]["type"]
-        search_spaces = tuning_config.get("search_spaces") or {}
-        if model_type not in search_spaces:
+        search_space = tuning_config.get("search_spaces", {}).get(model_type)
+        if search_space is None:
             raise ValueError(
                 f"Tuning is enabled but config.yaml has no search space for '{model_type}'."
             )
 
-        search_space = search_spaces[model_type]
         n_trials = tuning_config["n_trials"]
         tuning_seed = tuning_config["random_state"]
         optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -88,46 +102,33 @@ def main():
             f"\nNested cross-validation: {cv.get_n_splits()} outer folds x "
             f"{n_trials} trials x {inner_cv.get_n_splits()} inner folds ..."
         )
-        nested_scores, y_oof = nested_cross_validate(
-            estimator,
-            X_dev,
-            y_dev,
-            cv,
-            inner_cv,
-            cv_config.get("scoring", "accuracy"),
-            search_space,
-            n_trials,
-            tuning_seed,
-            n_jobs=cv_config.get("n_jobs", 1),
+        nested_scores, oof_proba = nested_cross_validate(
+            estimator, X_dev, y_dev, cv, inner_cv, scorers, selection_metric,
+            search_space, n_trials, tuning_seed, n_jobs=cv_config.get("n_jobs", 1),
         )
-        scoring = cv_config.get("scoring", "accuracy")
-        report += "\n\nNested cross-validation (honest tuning estimate):\n"
-        report += cv_report(nested_scores, scoring)
+        tuned_values = nested_scores[f"validation_{selection_metric}"]
+        tuned_mean = tuned_values.mean()
+        tuned_std = tuned_values.std(ddof=1)
+        report += "\n\nNested cross-validation:\n"
+        report += cv_report(nested_scores, metrics, selection_metric)
 
         estimator, study = tune_pipeline(
-            estimator,
-            X_dev,
-            y_dev,
-            inner_cv,
-            scoring,
-            search_space,
-            n_trials,
-            tuning_seed,
-            n_jobs=cv_config.get("n_jobs", 1),
+            estimator, X_dev, y_dev, inner_cv, scorers[selection_metric],
+            search_space, n_trials, tuning_seed, cv_config.get("n_jobs", 1),
         )
-        report += "\n\n" + tuning_report(study, nested_scores, scoring)
+        report += "\n\n" + tuning_report(
+            study, nested_scores, selection_metric
+        )
 
-    report += "\n\n" + oof_classification_report(y_dev, y_oof)
+    report += "\n\n" + oof_classification_report(y_dev, oof_proba)
     report += "\n" + fairness_report(
-        y_dev,
-        y_oof,
-        extras_dev,
+        y_dev, oof_proba, extras_dev,
         sensitive_attr=config["data"]["sensitive_attr"],
     )
 
     estimator.fit(X_dev, y_dev)
     refit = f"Final model: {config['model']['type']} refit on all {len(X_dev)} development rows."
-    if tuning_config.get("enabled", False):
+    if study is not None:
         refit += f" Tuned hyperparameters: {study.best_params}"
     print(refit)
     report += "\n" + refit + "\n"
@@ -139,8 +140,30 @@ def main():
     print(locked)
     report += "\n" + locked + "\n"
 
-    results_dir = config.get("output", {}).get("results_dir", "results")
-    path = save_run(results_dir, config, report)
+    scoreboard_path = config.get("output", {}).get(
+        "scoreboard", "results/runs.csv"
+    )
+    row = {
+        "run": run,
+        "data": config["data"]["path"],
+        "model": config["model"]["type"],
+        "tuned": bool(study is not None),
+        "encoder": config["preprocessing"].get("encoder"),
+        "scaler": config["preprocessing"].get("scaler"),
+        "metric": selection_metric,
+        "untuned_mean": fold_scores[f"validation_{selection_metric}"].mean(),
+        "untuned_std": fold_scores[f"validation_{selection_metric}"].std(ddof=1),
+        "tuned_mean": tuned_mean,
+        "tuned_std": tuned_std,
+        "floor_mean": floor_mean,
+        "best_trial": study.best_value if study is not None else None,
+        "tuned_params": repr(study.best_params) if study is not None else "",
+    }
+    save_scores(scoreboard_path, row)
+    print(f"Scoreboard saved to {scoreboard_path}")
+
+    report += "\n\nScoreboard row:\n" + str(row) + "\n"
+    path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report)
     print(f"Full results saved to {path}")
 
 
