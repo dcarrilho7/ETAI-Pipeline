@@ -1,5 +1,7 @@
 """Run cleaning, preprocessing, evaluation, and optional tuning."""
 
+import shutil
+import tempfile
 from datetime import datetime
 
 import optuna
@@ -70,7 +72,14 @@ def main():
     floor_mean = floor_scores["validation"].mean()
     print(f"Dummy baseline ({selection_metric}): {floor_mean:.3f}")
 
-    estimator = build_pipeline(config["preprocessing"], config["model"])
+    selection_config = config.get("feature_selection") or {}
+    cache_dir = tempfile.mkdtemp(prefix="pipeline_cache_")
+    estimator = build_pipeline(
+        config["preprocessing"],
+        config["model"],
+        selection_config,
+        memory=cache_dir,
+    )
     fold_scores, oof_proba = cross_validate_pipeline(
         estimator, X_dev, y_dev, cv, scorers,
         selection_metric=selection_metric, n_jobs=cv_config.get("n_jobs", 1),
@@ -88,6 +97,9 @@ def main():
             raise ValueError(
                 f"Tuning is enabled but config.yaml has no search space for '{model_type}'."
             )
+        search_space = dict(search_space)
+        if selection_config.get("enabled", False):
+            search_space.update(selection_config.get("search_space", {}))
 
         n_trials = tuning_config["n_trials"]
         tuning_seed = tuning_config["random_state"]
@@ -130,6 +142,10 @@ def main():
     refit = f"Final model: {config['model']['type']} refit on all {len(X_dev)} development rows."
     if study is not None:
         refit += f" Tuned hyperparameters: {study.best_params}"
+    if selection_config.get("enabled", False):
+        all_features = estimator.named_steps["prep"].get_feature_names_out()
+        kept_features = estimator.named_steps["select"].get_feature_names_out(all_features)
+        refit += f"\nFeatures kept: {len(kept_features)} of {len(all_features)}: {', '.join(kept_features)}"
     print(refit)
     report += "\n" + refit + "\n"
 
@@ -150,6 +166,10 @@ def main():
         "tuned": bool(study is not None),
         "encoder": config["preprocessing"].get("encoder"),
         "scaler": config["preprocessing"].get("scaler"),
+        "feature_selection": (
+            f"min_votes {selection_config.get('min_votes', 2)}"
+            if selection_config.get("enabled", False) else "off"
+        ),
         "metric": selection_metric,
         "untuned_mean": fold_scores[f"validation_{selection_metric}"].mean(),
         "untuned_std": fold_scores[f"validation_{selection_metric}"].std(ddof=1),
@@ -158,11 +178,24 @@ def main():
         "floor_mean": floor_mean,
         "best_trial": study.best_value if study is not None else None,
         "tuned_params": repr(study.best_params) if study is not None else "",
+        **{
+            f"untuned_fold_{i}": value
+            for i, value in enumerate(
+                fold_scores[f"validation_{selection_metric}"], start=1
+            )
+        },
+        **({
+            f"tuned_fold_{i}": value
+            for i, value in enumerate(
+                nested_scores[f"validation_{selection_metric}"], start=1
+            )
+        } if tuned_mean is not None else {}),
     }
     save_scores(scoreboard_path, row)
     print(f"Scoreboard saved to {scoreboard_path}")
 
     report += "\n\nScoreboard row:\n" + str(row) + "\n"
+    shutil.rmtree(cache_dir, ignore_errors=True)
     path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report)
     print(f"Full results saved to {path}")
 

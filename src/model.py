@@ -1,4 +1,7 @@
-"""Model construction and assembly of the full modelling pipeline."""
+"""Model construction, feature selection, and pipeline assembly."""
+import numpy as np
+from sklearn.base import BaseEstimator
+from sklearn.feature_selection import SelectorMixin
 from sklearn.linear_model import LogisticRegression
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import (
@@ -12,6 +15,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.pipeline import Pipeline
 from sklearn.random_projection import SparseRandomProjection
 from sklearn.tree import DecisionTreeClassifier
+from xgboost import XGBClassifier
 
 from src.preprocessing import build_preprocessor
 
@@ -55,6 +59,7 @@ _MODELS = {
     "gradient_boosting": GradientBoostingClassifier,
     "hist_gradient_boosting": HistGradientBoostingClassifier,
     "naive_bayes": GaussianNB,
+    "xgboost": XGBClassifier,
 }
 
 
@@ -68,9 +73,52 @@ def build_model(model_config: dict):
     return _MODELS[model_type](**params)
 
 
-def build_pipeline(preprocessing_config: dict, model_config: dict) -> Pipeline:
-    """Build the preprocessing-plus-model pipeline described by the config."""
-    return Pipeline([
-        ("prep", build_preprocessor(preprocessing_config)),
-        ("model", build_model(model_config)),
-    ])
+class VoteSelector(SelectorMixin, BaseEstimator):
+    """Keep features selected by at least min_votes of three simple models."""
+
+    def __init__(self, min_votes: int = 2, random_state=None):
+        self.min_votes = min_votes
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        forest = RandomForestClassifier(
+            n_estimators=200,
+            min_samples_leaf=20,
+            random_state=self.random_state,
+            n_jobs=-1,
+        ).fit(X, y)
+        booster = GradientBoostingClassifier(random_state=self.random_state).fit(X, y)
+        lasso = LogisticRegression(
+            l1_ratio=1.0, C=0.01, solver="liblinear"
+        ).fit(X, y)
+
+        self.votes_ = (
+            (forest.feature_importances_ > forest.feature_importances_.mean()).astype(int)
+            + (booster.feature_importances_ > booster.feature_importances_.mean())
+            + (np.abs(lasso.coef_[0]) > 1e-8)
+        )
+        self.support_ = self.votes_ >= self.min_votes
+        return self
+
+    def _get_support_mask(self):
+        return self.support_
+
+
+def build_pipeline(
+    preprocessing_config: dict,
+    model_config: dict,
+    selection_config: dict = None,
+    memory=None,
+) -> Pipeline:
+    """Build preprocessing, optional selection, and model as one pipeline."""
+    steps = [("prep", build_preprocessor(preprocessing_config))]
+    if selection_config and selection_config.get("enabled", False):
+        steps.append((
+            "select",
+            VoteSelector(
+                min_votes=selection_config.get("min_votes", 2),
+                random_state=selection_config.get("random_state"),
+            ),
+        ))
+    steps.append(("model", build_model(model_config)))
+    return Pipeline(steps, memory=memory)

@@ -82,6 +82,18 @@ The runs below used five Optuna trials so that I could compare the models withou
 AdaBoost had the highest score in this small comparison. Random Forest and Gradient Boosting were very close. The Dummy Classifier is the floor at 50.0%, so all of the real models were above it. These results are only a first comparison because I used five tuning trials.
 
 
+Week 8
+
+This week I added XGBoost and a feature-selection step to the pipeline. The selector uses a random forest, gradient boosting and L1 logistic regression to vote on which features to keep, and it runs inside each CV fold so it does not see the validation rows. I compared tuned XGBoost with and without selection using the same five folds.
+
+| XGBoost setup | Tuned nested CV ROC-AUC |
+|---|---:|
+| With VoteSelector | 72.6% +/- 1.1% |
+| Without selection | 72.7% +/- 1.2% |
+
+The corrected paired test gave a p-value of 0.63, so the small difference is not meaningful in this experiment. The selected version kept 4 of 13 features, but I would keep selection off for now because it did not improve the score; it could still be useful if the goal is a smaller model.
+
+
 # Baseline Predictive Pipeline -- ETAI
 
 This is the **starting point** for your semester project: a small but *complete* predictive pipeline -- every piece a real project needs (entry point, config, data loading, preprocessing, model, evaluation), just kept as simple as possible for now.
@@ -124,6 +136,7 @@ This table is updated after each practical class, so you can always see what cha
 | 5 | Hyperparameter tuning | Added a single `build_pipeline()` function, Optuna tuning for a decision tree, and nested cross-validation so the tuning score is estimated on folds that were not used to choose the parameters. |
 | 6 | Ensembles and feature engineering | Added Random Forest, Oblique Random Forest, AdaBoost, and three fixed engineered features. All models use the same config-driven pipeline and nested-CV tuning. |
 | 7 | More models and metrics | Added Gradient Boosting, HistGradientBoosting and Naive Bayes, and saved a scoreboard with several CV metrics. |
+| 8 | XGBoost and feature selection | Added XGBoost and a VoteSelector inside the pipeline, then compared tuned XGBoost with and without selection. |
 
 ## Environment setup
 
