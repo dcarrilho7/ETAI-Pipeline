@@ -67,6 +67,16 @@ def clean_dataset(df: pd.DataFrame, diagnostics_config: dict) -> pd.DataFrame:
                 errors="coerce",
             )
 
+    # Treat placeholder strings as missing in any text column. The columns are
+    # supplied by the config, so this also works for datasets other than COMPAS.
+    for column in out.select_dtypes(include=["object", "string"]).columns:
+        values = out[column].astype("string").str.strip()
+        values = values.mask(values.isin(placeholder_tokens), np.nan)
+        out[column] = [
+            value if pd.notna(value) else np.nan
+            for value in values.tolist()
+        ]
+
     flag_invalid_values(out, diagnostics_config.get("validity_rules", {}))
     out = _canonicalize_categories(
         out,
@@ -113,19 +123,27 @@ def add_missingness_indicators(df: pd.DataFrame, columns: list) -> pd.DataFrame:
     return out
 
 
-def split_features_target(df: pd.DataFrame, data_config: dict, preprocessing_config: dict):
-    """Separate features, target, and fairness-audit columns."""
+def split_features(df: pd.DataFrame, data_config: dict, preprocessing_config: dict):
+    """Separate features and audit columns without requiring a target."""
     df = add_missingness_indicators(
         df, preprocessing_config.get("mnar_indicator_sources", [])
     )
-    target = data_config["target"]
+    target = data_config.get("target")
     sensitive_attr = data_config["sensitive_attr"]
-    y = df[target]
 
     extras_columns = [c for c in [sensitive_attr, "score_text"] if c in df.columns]
     extras = df[extras_columns].copy()
-    columns_to_exclude = set(data_config.get("drop_columns", [])) | {target, sensitive_attr}
+    columns_to_exclude = set(data_config.get("drop_columns", [])) | {sensitive_attr}
+    if target:
+        columns_to_exclude.add(target)
     X = df[[c for c in df.columns if c not in columns_to_exclude]]
+    return X, extras
+
+
+def split_features_target(df: pd.DataFrame, data_config: dict, preprocessing_config: dict):
+    """Separate features, target, and fairness-audit columns."""
+    X, extras = split_features(df, data_config, preprocessing_config)
+    y = df[data_config["target"]]
     return X, y, extras
 
 

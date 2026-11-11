@@ -1,10 +1,12 @@
 """Run cleaning, preprocessing, evaluation, and optional tuning."""
 
 import shutil
+import sys
 import tempfile
 from datetime import datetime
 
 import optuna
+import pandas as pd
 import yaml
 from sklearn.model_selection import StratifiedKFold
 
@@ -22,6 +24,7 @@ from src.preprocessing import (
     clean_dataset,
     drop_duplicate_rows,
     split_dev_test,
+    split_features,
     split_features_target,
 )
 from src.results import save_run, save_scores
@@ -33,8 +36,8 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(file)
 
 
-def main():
-    config = load_config()
+def main(config_path: str = "config.yaml"):
+    config = load_config(config_path)
     run = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     df = clean_dataset(load_data(config["data"]["path"]), config["diagnostics"])
@@ -156,6 +159,33 @@ def main():
     print(locked)
     report += "\n" + locked + "\n"
 
+    prediction_config = config.get("prediction")
+    if prediction_config:
+        new_df = clean_dataset(
+            load_data(prediction_config["data_path"]), config["diagnostics"]
+        )
+        new_df = add_engineered_features(new_df)
+        X_new, _ = split_features(
+            new_df, config["data"], config["preprocessing"]
+        )
+        probabilities = estimator.predict_proba(X_new)[:, 1]
+        predictions = (probabilities >= prediction_config.get("threshold", 0.5)).astype(int)
+        id_column = config["data"].get(
+            "id_column", config["diagnostics"].get("id_column", "id")
+        )
+        prediction_table = pd.DataFrame({
+            id_column: new_df[id_column].to_numpy(),
+            "probability_over_50k": probabilities,
+            "prediction": predictions,
+        })
+        prediction_path = prediction_config["output_path"]
+        prediction_table.to_csv(prediction_path, index=False)
+        prediction_note = (
+            f"Predictions saved to {prediction_path} ({len(prediction_table)} rows)."
+        )
+        print(prediction_note)
+        report += "\n" + prediction_note + "\n"
+
     scoreboard_path = config.get("output", {}).get(
         "scoreboard", "results/runs.csv"
     )
@@ -201,4 +231,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else "config.yaml")

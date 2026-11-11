@@ -98,18 +98,27 @@ def oof_classification_report(y_true, oof_proba, threshold=0.5) -> str:
 def fairness_report(
     y_true, oof_proba, extras: pd.DataFrame, threshold=0.5, sensitive_attr="race"
 ) -> str:
-    """Compare model and COMPAS false-positive rates by race."""
+    """Report model false-positive rates, with a COMPAS comparison when available."""
     df = extras.reset_index(drop=True).copy()
+    if sensitive_attr not in df.columns:
+        text = f"Fairness report skipped: '{sensitive_attr}' is not available."
+        print(text)
+        return text
+
     df["y_true"] = np.asarray(y_true)
     df["y_pred_model"] = (np.asarray(oof_proba) >= threshold).astype(int)
-    df["y_pred_compas"] = (df["score_text"] != "Low").astype(int)
 
     lines = [
-        "False positive rate by race",
+        f"False positive rate by {sensitive_attr}",
         "(share of people who did NOT reoffend, but were predicted to)",
         "",
     ]
-    for label, col in [("Our model", "y_pred_model"), ("COMPAS's own score", "y_pred_compas")]:
+    predictions = [("Our model", "y_pred_model")]
+    if "score_text" in df.columns:
+        df["y_pred_compas"] = (df["score_text"] != "Low").astype(int)
+        predictions.append(("COMPAS's own score", "y_pred_compas"))
+
+    for label, col in predictions:
         lines.append(f"  {label}:")
         for group, group_df in df.groupby(sensitive_attr):
             negatives = group_df[group_df["y_true"] == 0]
