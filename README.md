@@ -94,6 +94,10 @@ This week I added XGBoost and a feature-selection step to the pipeline. The sele
 The corrected paired test gave a p-value of 0.63, so the small difference is not meaningful in this experiment. The selected version kept 4 of 13 features, but I would keep selection off for now because it did not improve the score; it could still be useful if the goal is a smaller model.
 
 
+Week 9
+
+I chose Option A and applied the pipeline to the Adult income dataset. I added a separate config file, made the data cleaning work with the new columns, and saved predictions for the new rows in `adult_predictions.csv`.
+
 # Baseline Predictive Pipeline -- ETAI
 
 This is the **starting point** for your semester project: a small but *complete* predictive pipeline -- every piece a real project needs (entry point, config, data loading, preprocessing, model, evaluation), just kept as simple as possible for now.
