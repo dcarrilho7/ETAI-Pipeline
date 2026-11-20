@@ -3,7 +3,9 @@
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import KNNImputer, SimpleImputer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
@@ -13,6 +15,24 @@ from sklearn.preprocessing import (
     TargetEncoder,
 )
 
+_NUMERIC_IMPUTERS = {
+    "median": lambda cfg, seed: SimpleImputer(strategy="median"),
+    "mean": lambda cfg, seed: SimpleImputer(strategy="mean"),
+    "knn": lambda cfg, seed: KNNImputer(n_neighbors=cfg.get("n_neighbors", 5)),
+    "iterative": lambda cfg, seed: IterativeImputer(
+        max_iter=cfg.get("max_iter", 10), random_state=seed
+    ),
+    "random_forest": lambda cfg, seed: IterativeImputer(
+        estimator=RandomForestRegressor(
+            n_estimators=cfg.get("n_estimators", 50),
+            min_samples_leaf=5,
+            random_state=seed,
+            n_jobs=-1,
+        ),
+        max_iter=cfg.get("max_iter", 10),
+        random_state=seed,
+    ),
+}
 
 
 def flag_invalid_values(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
@@ -170,22 +190,25 @@ def build_preprocessor(preprocessing_config: dict) -> ColumnTransformer:
         "robust": RobustScaler(),
     }[scaler_name]
 
-    if imputation.get("numeric_strategy", "median") == "knn":
-        numeric_imputer = KNNImputer(n_neighbors=imputation.get("n_neighbors", 5))
-    else:
-        numeric_imputer = SimpleImputer(
-            strategy=imputation.get("numeric_strategy", "median")
+    numeric_strategy = imputation.get("numeric_strategy", "median")
+    if numeric_strategy not in _NUMERIC_IMPUTERS:
+        raise ValueError(
+            f"Unknown numeric_strategy: {numeric_strategy}. "
+            f"Choose from {', '.join(_NUMERIC_IMPUTERS)}."
         )
+    random_state = preprocessing_config.get("random_state", 42)
+    numeric_imputer = _NUMERIC_IMPUTERS[numeric_strategy](imputation, random_state)
 
+    # Scale before KNN measures distances between rows.
     numeric_pipeline = Pipeline([
-        ("impute", numeric_imputer),
         ("scale", scaler),
+        ("impute", numeric_imputer),
     ])
     categorical_pipeline = Pipeline([
         ("impute", SimpleImputer(
             strategy=imputation.get("categorical_strategy", "most_frequent")
         )),
-        ("encode", _build_encoder(encoder_name, preprocessing_config.get("random_state", 42))),
+        ("encode", _build_encoder(encoder_name, random_state)),
     ])
 
     indicator_columns = [

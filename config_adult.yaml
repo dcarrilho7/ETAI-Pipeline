@@ -120,6 +120,7 @@ tuning:
       model__gamma: {type: float, low: 0.0, high: 5.0}
 
 output:
+  model_path: "models/adult_model.joblib"
   results_dir: "results/adult"
   scoreboard: "results/adult_runs.csv"
 

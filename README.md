@@ -98,6 +98,27 @@ Week 9
 
 I chose Option A and applied the pipeline to the Adult income dataset. I added a separate config file, made the data cleaning work with the new columns, and saved predictions for the new rows in `adult_predictions.csv`.
 
+Week 10
+
+I compared four imputers on COMPAS using the same five folds and XGBoost with tuning off.
+
+| Numeric imputer | Mean CV ROC-AUC | Corrected paired test vs. median (p-value) |
+|---|---:|---:|
+| Median | 0.7168 | — |
+| KNN | 0.7177 | 0.812 |
+| Iterative | 0.7165 | 0.907 |
+| Random forest | 0.7147 | 0.397 |
+
+KNN had the highest score, but the corrected paired tests showed no clear difference from median. I kept median because it was simpler and scored almost the same.
+
+After running `python main.py` to save the fitted pipeline, I ran:
+
+```bash
+python predict.py data/compas_new_people.csv predictions.csv
+```
+
+The output has 20 rows, one for each input row, with the ID, the predicted probability, and the prediction at a 0.5 cutoff.
+
 # Baseline Predictive Pipeline -- ETAI
 
 This is the **starting point** for your semester project: a small but *complete* predictive pipeline -- every piece a real project needs (entry point, config, data loading, preprocessing, model, evaluation), just kept as simple as possible for now.
@@ -141,6 +162,7 @@ This table is updated after each practical class, so you can always see what cha
 | 6 | Ensembles and feature engineering | Added Random Forest, Oblique Random Forest, AdaBoost, and three fixed engineered features. All models use the same config-driven pipeline and nested-CV tuning. |
 | 7 | More models and metrics | Added Gradient Boosting, HistGradientBoosting and Naive Bayes, and saved a scoreboard with several CV metrics. |
 | 8 | XGBoost and feature selection | Added XGBoost and a VoteSelector inside the pipeline, then compared tuned XGBoost with and without selection. |
+| 10 | Missing values and deployment | Added configurable numeric imputers, saved the fitted pipeline, and added `predict.py` to make predictions from a new CSV. |
 
 ## Environment setup
 

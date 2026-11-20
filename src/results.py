@@ -22,6 +22,8 @@ def save_run(results_dir: str, run: str, config: dict, report_text: str) -> str:
     os.makedirs(results_dir, exist_ok=True)
     path = os.path.join(results_dir, f"run_{run}.txt")
     test_config = config.get("test_set", {})
+    imputation = {"numeric_strategy": "median"}
+    imputation.update(config.get("preprocessing", {}).get("imputation", {}))
     selection = config.get("feature_selection") or {}
     selection_text = (
         f"VoteSelector, min_votes={selection.get('min_votes', 2)}"
@@ -33,7 +35,7 @@ def save_run(results_dir: str, run: str, config: dict, report_text: str) -> str:
         f"Locked test size: {test_config.get('size')}  "
         f"random_state: {test_config.get('random_state')}\n"
         f"CV: {config.get('cv', {})}\n"
-        f"Preprocessing: {config.get('preprocessing', {}).get('imputation', {})}\n"
+        f"Imputation: {imputation}\n"
         f"Feature selection: {selection_text}\n"
         f"Tuning: {config.get('tuning', {})}\n"
         + "=" * 60 + "\n\n"

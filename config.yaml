@@ -69,8 +69,10 @@ preprocessing:
   scaler: "robust"
   random_state: 42
   imputation:
-    numeric_strategy: "median"
+    numeric_strategy: "median"  # median | mean | knn | iterative | random_forest
     n_neighbors: 5
+    max_iter: 10
+    n_estimators: 50
     categorical_strategy: "most_frequent"
 
 cv:
@@ -149,5 +151,6 @@ tuning:
       model__gamma: {type: float, low: 0.0, high: 5.0}
 
 output:
+  model_path: "models/model.joblib"
   results_dir: "results"   # each run's full report is saved here as a timestamped .txt file
   scoreboard: "results/runs.csv"

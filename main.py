@@ -4,13 +4,14 @@ import shutil
 import sys
 import tempfile
 from datetime import datetime
+from pathlib import Path
 
+import joblib
 import optuna
-import pandas as pd
-import yaml
 from sklearn.model_selection import StratifiedKFold
 
-from src.data import load_data
+from predict import predict
+from src.data import load_config, load_data
 from src.evaluate import (
     build_scorers,
     cross_validate_pipeline,
@@ -24,21 +25,17 @@ from src.preprocessing import (
     clean_dataset,
     drop_duplicate_rows,
     split_dev_test,
-    split_features,
     split_features_target,
 )
 from src.results import save_run, save_scores
 from src.tuning import nested_cross_validate, tune_pipeline, tuning_report
 
 
-def load_config(path: str = "config.yaml") -> dict:
-    with open(path, "r") as file:
-        return yaml.safe_load(file)
-
-
 def main(config_path: str = "config.yaml"):
     config = load_config(config_path)
     run = datetime.now().strftime("%Y%m%d_%H%M%S")
+    imputer = config["preprocessing"].get("imputation", {}).get("numeric_strategy", "median")
+    print(f"Numeric imputer: {imputer}")
 
     df = clean_dataset(load_data(config["data"]["path"]), config["diagnostics"])
     df = drop_duplicate_rows(df, config["diagnostics"].get("id_column"))
@@ -152,6 +149,13 @@ def main(config_path: str = "config.yaml"):
     print(refit)
     report += "\n" + refit + "\n"
 
+    model_path = config.get("output", {}).get("model_path")
+    if model_path:
+        Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+        estimator.set_params(memory=None)
+        joblib.dump(estimator, model_path)
+        print(f"Fitted pipeline saved to {model_path}")
+
     locked = (
         f"Locked test set: {len(X_test)} rows set aside and not evaluated. "
         f"Development set: {len(X_dev)} rows."
@@ -161,23 +165,9 @@ def main(config_path: str = "config.yaml"):
 
     prediction_config = config.get("prediction")
     if prediction_config:
-        new_df = clean_dataset(
-            load_data(prediction_config["data_path"]), config["diagnostics"]
-        )
-        new_df = add_engineered_features(new_df)
-        X_new, _ = split_features(
-            new_df, config["data"], config["preprocessing"]
-        )
-        probabilities = estimator.predict_proba(X_new)[:, 1]
-        predictions = (probabilities >= prediction_config.get("threshold", 0.5)).astype(int)
-        id_column = config["data"].get(
-            "id_column", config["diagnostics"].get("id_column", "id")
-        )
-        prediction_table = pd.DataFrame({
-            id_column: new_df[id_column].to_numpy(),
-            "probability_over_50k": probabilities,
-            "prediction": predictions,
-        })
+        prediction_table = predict(
+            load_data(prediction_config["data_path"]), estimator, config
+        ).rename(columns={"probability": "probability_over_50k"})
         prediction_path = prediction_config["output_path"]
         prediction_table.to_csv(prediction_path, index=False)
         prediction_note = (
@@ -196,6 +186,7 @@ def main(config_path: str = "config.yaml"):
         "tuned": bool(study is not None),
         "encoder": config["preprocessing"].get("encoder"),
         "scaler": config["preprocessing"].get("scaler"),
+        "imputer": imputer,
         "feature_selection": (
             f"min_votes {selection_config.get('min_votes', 2)}"
             if selection_config.get("enabled", False) else "off"
